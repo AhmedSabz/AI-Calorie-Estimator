@@ -1,0 +1,8 @@
+.venv/
+**pycache**/
+*.pyc
+*.parquet
+*.pt
+*.pth
+datasets/data/
+.vscode/
