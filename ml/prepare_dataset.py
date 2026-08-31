@@ -2,6 +2,8 @@ from datasets import load_dataset
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 import torch
+import numpy as np
+from PIL import Image
 #1. Load FoodSeg103
 
 print("Loading FoodSeg103...")
@@ -23,40 +25,49 @@ transforms.ToTensor()
 #3. Create PyTorch Dataset
 class FoodSegDataset(Dataset):
 
-   def __init__(self, hf_dataset, transform=None):
-      self.dataset = hf_dataset
-      self.transform = transform
+    def __init__(self, dataset, transform=None):
 
-   def __len__(self):
-      return len(self.dataset)
+        self.dataset = dataset
 
-   def __getitem__(self, index):
+        if transform is None:
+            self.transform = transforms.Compose([
+                transforms.Resize((256, 256)),
+                transforms.ToTensor()
+            ])
+        else:
+            self.transform = transform
 
-      sample = self.dataset[index]
+    def __len__(self):
 
-      image = sample["image"]
-      mask = sample["label"]
+        return len(self.dataset)
 
-    # Convert image to RGB
-      image = image.convert("RGB")
+    def __getitem__(self, index):
 
-    # Resize image
-      if self.transform:
-         image = self.transform(image)
+        sample = self.dataset[index]
 
-    # Resize segmentation mask
-      mask = mask.resize((256, 256))
+        image = sample["image"]
+        mask = sample["label"]
 
-    # Convert mask to tensor
-      mask = torch.tensor(
-        torch.tensor(
-            list(mask.getdata())
-        ).reshape(mask.height, mask.width),
-        dtype=torch.long
-    )
+        # Make sure the image has RGB channels
+        image = image.convert("RGB")
 
-      return image, mask
+        # Resize and convert image to PyTorch tensor
+        image = self.transform(image)
 
+        # Resize segmentation mask
+        mask = mask.resize(
+            (256, 256),   Image.Resampling.NEAREST
+        )
+
+        # Convert mask to integer tensor
+        mask = torch.from_numpy(
+            np.array(mask, dtype=np.int64)
+        )
+
+        if mask.max() >= 104:
+           print("WARNING: Invalid class ID:", mask.max())
+
+        return image, mask
 #4. Create training and validation datasets
 train_dataset = FoodSegDataset(
 train_data,
