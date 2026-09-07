@@ -6,22 +6,19 @@ from prepare_dataset import FoodSegDataset
 from model import create_model
 
 
-#Configuration
-
+# Configuration
 
 BATCH_SIZE = 2
 LEARNING_RATE = 0.0001
-NUM_EPOCHS = 1
+NUM_EPOCHS = 5
 
-#Start with a small subset while testing the pipeline
-
-MAX_TRAIN_IMAGES = 100
+# Start with a small subset while testing the pipeline
+MAX_TRAIN_IMAGES = None
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-#Load dataset
-
+# Load dataset
 
 print("Loading FoodSeg103...")
 
@@ -30,26 +27,26 @@ dataset = load_dataset("EduardoPacheco/FoodSeg103")
 train_dataset = FoodSegDataset(
     dataset=dataset["train"]
 )
-#Use only a small number of images for our first test
 
-train_dataset = torch.utils.data.Subset(
-train_dataset,
-range(min(MAX_TRAIN_IMAGES, len(train_dataset)))
-)
+# Use only a small number of images for our first test
+if MAX_TRAIN_IMAGES is not None:
+    train_dataset = torch.utils.data.Subset(
+        train_dataset,
+        range(min(MAX_TRAIN_IMAGES, len(train_dataset)))
+    )
 
 train_loader = DataLoader(
-train_dataset,
-batch_size=BATCH_SIZE,
-shuffle=True,
-num_workers=0
+    train_dataset,
+    batch_size=BATCH_SIZE,
+    shuffle=True,
+    num_workers=0
 )
 
 print(f"Training images used: {len(train_dataset)}")
 print(f"Batch size: {BATCH_SIZE}")
 
 
-#Create model
-
+# Create model
 
 print("\nCreating model...")
 
@@ -59,68 +56,72 @@ model = model.to(DEVICE)
 print(f"Using device: {DEVICE}")
 
 
-#Loss function
-
+# Loss function
 
 criterion = nn.CrossEntropyLoss()
 
 
-#Optimizer
-
+# Optimizer
 
 optimizer = torch.optim.Adam(
-model.parameters(),
-lr=LEARNING_RATE
+    model.parameters(),
+    lr=LEARNING_RATE
 )
 
-#Training Loop
+# Training Loop
 print("\nStarting training...")
 
 model.train()
 
 for epoch in range(NUM_EPOCHS):
 
-   running_loss = 0.0
+    running_loss = 0.0
 
-   for batch_index, (images, masks) in enumerate(train_loader):
+    for batch_index, (images, masks) in enumerate(train_loader):
 
-    # Move data to CPU/GPU
-      images = images.to(DEVICE)
-      masks = masks.to(DEVICE)
+        # Move data to CPU/GPU
+        images = images.to(DEVICE)
+        masks = masks.to(DEVICE)
 
-    # Clear previous gradients
-      optimizer.zero_grad()
+        # Clear previous gradients
+        optimizer.zero_grad()
 
-    # Forward pass
-      outputs = model(images)
+        # Forward pass
+        outputs = model(images)
 
-      predictions = outputs["out"]
+        predictions = outputs["out"]
 
-    # Calculate loss
-      loss = criterion(predictions, masks)
+        # Calculate loss
+        loss = criterion(predictions, masks)
 
-    # Backpropagation
-      loss.backward()
+        # Backpropagation
+        loss.backward()
 
-    # Update model weights
-      optimizer.step()
+        # Update model weights
+        optimizer.step()
 
-      running_loss += loss.item()
+        running_loss += loss.item()
 
-    # Print progress every 10 batches
-      if (batch_index + 1) % 10 == 0:
+        # Print progress every 10 batches
+        if (batch_index + 1) % 10 == 0:
 
-          print(
-              f"Epoch [{epoch + 1}/{NUM_EPOCHS}] "
-              f"Batch [{batch_index + 1}/{len(train_loader)}] "
-              f"Loss: {loss.item():.4f}"
-          )
+            print(
+                f"Epoch [{epoch + 1}/{NUM_EPOCHS}] "
+                f"Batch [{batch_index + 1}/{len(train_loader)}] "
+                f"Loss: {loss.item():.4f}"
+            )
 
-   average_loss = running_loss / len(train_loader)
+    average_loss = running_loss / len(train_loader)
 
-   print(
-    f"\nEpoch {epoch + 1} complete. "
-    f"Average Loss: {average_loss:.4f}"
-   )
+    print(
+        f"\nEpoch {epoch + 1} complete. "
+        f"Average Loss: {average_loss:.4f}"
+    )
+    torch.save(
+        model.state_dict(),
+        "models/foodseg_model.pth"
+    )
+
+print("\nModel saved successfully!")
 
 print("\nTraining test completed successfully!")
