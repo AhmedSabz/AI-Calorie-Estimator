@@ -200,6 +200,7 @@ with torch.no_grad():
         dim=1
     )
 
+
 # Remove batch dimension
 prediction = prediction.squeeze(0)
 
@@ -286,14 +287,45 @@ else:
 
 
 # ==============================
+# Create steak mask
+# ==============================
+
+STEAK_CLASS_ID = 46
+
+steak_mask = (
+    prediction == STEAK_CLASS_ID
+).astype(np.uint8)
+
+steak_pixels = np.sum(steak_mask)
+
+total_pixels = steak_mask.size
+
+steak_percentage = (
+    steak_pixels / total_pixels
+) * 100
+
+
+print("\n==============================")
+print("STEAK SEGMENTATION")
+print("==============================")
+
+print(f"Steak pixels: {steak_pixels}")
+print(f"Total pixels: {total_pixels}")
+print(f"Steak coverage: {steak_percentage:.2f}%")
+
+
+# ==============================
 # Display results
 # ==============================
 
-plt.figure(figsize=(15, 5))
+plt.figure(figsize=(20, 5))
 
 
+# ------------------------------
 # Original image
-plt.subplot(1, 3, 1)
+# ------------------------------
+
+plt.subplot(1, 4, 1)
 
 plt.imshow(image)
 
@@ -302,8 +334,11 @@ plt.title("Original Image")
 plt.axis("off")
 
 
-# Segmentation mask
-plt.subplot(1, 3, 2)
+# ------------------------------
+# Full segmentation
+# ------------------------------
+
+plt.subplot(1, 4, 2)
 
 plt.imshow(prediction)
 
@@ -312,19 +347,39 @@ plt.title("Predicted Segmentation")
 plt.axis("off")
 
 
-# Segmentation overlay
-plt.subplot(1, 3, 3)
+# ------------------------------
+# Steak mask
+# ------------------------------
+
+plt.subplot(1, 4, 3)
+
+plt.imshow(
+    steak_mask,
+    cmap="gray"
+)
+
+plt.title("Steak Mask")
+
+plt.axis("off")
+
+
+# ------------------------------
+# Steak mask overlay
+# ------------------------------
+
+plt.subplot(1, 4, 4)
 
 resized_image = image.resize((256, 256))
 
 plt.imshow(resized_image)
 
 plt.imshow(
-    prediction,
+    steak_mask,
+    cmap="gray",
     alpha=0.5
 )
 
-plt.title("Segmentation Overlay")
+plt.title("Steak Mask Overlay")
 
 plt.axis("off")
 
