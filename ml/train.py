@@ -13,7 +13,7 @@ from model import create_model
 
 BATCH_SIZE = 2
 LEARNING_RATE = 0.0001
-NUM_EPOCHS = 5
+NUM_EPOCHS = 15
 
 NUM_CLASSES = 104
 
