@@ -431,4 +431,9 @@ plt.axis("off")
 
 
 plt.tight_layout()
+plt.savefig(
+    "segmentation_result.png",
+    dpi=200,
+    bbox_inches="tight"
+)
 plt.show()
