@@ -5,10 +5,12 @@ import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent))
+
 from PIL import Image
 from torchvision import transforms
-from portion_estimator import estimate_steak_weight
-from calorie_estimator import estimate_steak_calories
+
+from general_portion_estimator import estimate_food_weight
+from nutrition_database import get_nutrition
 from model import create_model
 
 
@@ -132,7 +134,7 @@ ID_TO_LABEL = {
     100: "oyster mushroom",
     101: "white button mushroom",
     102: "salad",
-    103: "other ingredients"
+    103: "other ingredients",
 }
 
 
@@ -221,6 +223,11 @@ unique_classes, pixel_counts = np.unique(
     return_counts=True
 )
 
+total_pixels = prediction.size
+
+# Store detected foods and pixel counts
+detected_foods = {}
+
 print("\n==============================")
 print("Detected Foods")
 print("==============================")
@@ -231,13 +238,15 @@ for class_id, count in zip(
 ):
 
     percentage = (
-        count / prediction.size
+        count / total_pixels
     ) * 100
 
     food_name = ID_TO_LABEL.get(
         int(class_id),
         "unknown"
     )
+
+    detected_foods[food_name] = int(count)
 
     print(
         f"{food_name}: "
@@ -249,9 +258,6 @@ for class_id, count in zip(
 # ==============================
 # Main detected food
 # ==============================
-
-# Ignore background when finding
-# the main food prediction
 
 non_background = [
     (class_id, count)
@@ -275,7 +281,7 @@ if non_background:
     )
 
     main_percentage = (
-        main_count / prediction.size
+        main_count / total_pixels
     ) * 100
 
     print("\n==============================")
@@ -291,6 +297,101 @@ else:
 
 
 # ==============================
+# Multi-food nutrition estimation
+# ==============================
+
+print("\n==============================")
+print("MULTI-FOOD NUTRITION ESTIMATION")
+print("==============================")
+
+total_calories = 0
+total_protein = 0
+
+for food_name, pixel_count in detected_foods.items():
+
+    # Ignore background
+    if food_name == "background":
+        continue
+
+    pixel_percentage = (
+        pixel_count / total_pixels
+    ) * 100
+
+    # Ignore very small detections
+    # These may be false positives.
+    if pixel_percentage < 2.0:
+
+        print(
+            f"\nIgnoring small detection: "
+            f"{food_name} "
+            f"({pixel_percentage:.2f}%)"
+        )
+
+        continue
+
+    # Estimate portion size
+    estimated_weight = estimate_food_weight(
+        food_name,
+        pixel_percentage
+    )
+
+    # Look up nutrition information
+    nutrition = get_nutrition(food_name)
+
+    if nutrition is None:
+
+        print(
+            f"\n{food_name}: "
+            f"nutrition data unavailable"
+        )
+
+        continue
+
+    calories = (
+        estimated_weight / 100
+    ) * nutrition["calories_per_100g"]
+
+    protein = (
+        estimated_weight / 100
+    ) * nutrition["protein_per_100g"]
+
+    calories = round(calories)
+    protein = round(protein, 1)
+
+    total_calories += calories
+    total_protein += protein
+
+    print(f"\nFood: {food_name}")
+    print(f"Pixel coverage: {pixel_percentage:.2f}%")
+    print(f"Estimated weight: {estimated_weight} g")
+    print(f"Estimated calories: {calories} kcal")
+    print(f"Estimated protein: {protein} g")
+
+
+# ==============================
+# Total nutrition
+# ==============================
+
+print("\n==============================")
+print("TOTAL NUTRITION ESTIMATE")
+print("==============================")
+
+print(
+    f"Total estimated calories: "
+    f"{round(total_calories)} kcal"
+)
+
+print(
+    f"Total estimated protein: "
+    f"{round(total_protein, 1)} g"
+)
+
+print()
+print("Note: Portion sizes and nutrition values")
+print("are approximate heuristic estimates.")
+
+
+# ==============================
 # Create steak mask
 # ==============================
 
@@ -302,12 +403,9 @@ steak_mask = (
 
 steak_pixels = np.sum(steak_mask)
 
-total_pixels = steak_mask.size
-
 steak_percentage = (
     steak_pixels / total_pixels
 ) * 100
-
 
 print("\n==============================")
 print("STEAK SEGMENTATION")
@@ -318,25 +416,6 @@ print(f"Total pixels: {total_pixels}")
 print(f"Steak coverage: {steak_percentage:.2f}%")
 
 
-estimated_weight = estimate_steak_weight(steak_percentage)
-
-print("\n==============================")
-print("PORTION ESTIMATION")
-print("==============================")
-print(f"Estimated steak weight: {estimated_weight} g")
-print()
-print("Note: This is a heuristic estimate,")
-print("not a scientifically measured portion.")
-estimated_calories = estimate_steak_calories(estimated_weight)
-
-print("\n==============================")
-print("CALORIE ESTIMATION")
-print("==============================")
-print(f"Estimated steak weight: {estimated_weight} g")
-print(f"Estimated calories: {estimated_calories} kcal")
-print()
-print("Note: Calories are approximate and depend")
-print("on the steak cut, fat content, and cooking method.")
 # ==============================
 # Display results
 # ==============================
