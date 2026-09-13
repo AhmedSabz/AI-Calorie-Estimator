@@ -11,7 +11,7 @@ from model import create_model
 # Configuration
 # =========================
 
-BATCH_SIZE = 2
+BATCH_SIZE = 16
 LEARNING_RATE = 0.0001
 NUM_EPOCHS = 15
 
