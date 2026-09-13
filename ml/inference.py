@@ -1,10 +1,14 @@
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
+import sys
+from pathlib import Path
 
+sys.path.append(str(Path(__file__).resolve().parent))
 from PIL import Image
 from torchvision import transforms
-
+from portion_estimator import estimate_steak_weight
+from calorie_estimator import estimate_steak_calories
 from model import create_model
 
 
@@ -314,6 +318,25 @@ print(f"Total pixels: {total_pixels}")
 print(f"Steak coverage: {steak_percentage:.2f}%")
 
 
+estimated_weight = estimate_steak_weight(steak_percentage)
+
+print("\n==============================")
+print("PORTION ESTIMATION")
+print("==============================")
+print(f"Estimated steak weight: {estimated_weight} g")
+print()
+print("Note: This is a heuristic estimate,")
+print("not a scientifically measured portion.")
+estimated_calories = estimate_steak_calories(estimated_weight)
+
+print("\n==============================")
+print("CALORIE ESTIMATION")
+print("==============================")
+print(f"Estimated steak weight: {estimated_weight} g")
+print(f"Estimated calories: {estimated_calories} kcal")
+print()
+print("Note: Calories are approximate and depend")
+print("on the steak cut, fat content, and cooking method.")
 # ==============================
 # Display results
 # ==============================
