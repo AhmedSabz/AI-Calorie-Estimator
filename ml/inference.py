@@ -1,22 +1,24 @@
-import torch
-import numpy as np
-import matplotlib.pyplot as plt
 import sys
 from pathlib import Path
 
-sys.path.append(str(Path(__file__).resolve().parent))
+import torch
+import numpy as np
+import matplotlib.pyplot as plt
 
 from PIL import Image
 from torchvision import transforms
+
+# Allow imports from the ml directory
+sys.path.append(str(Path(__file__).resolve().parent))
 
 from general_portion_estimator import estimate_food_weight
 from nutrition_database import get_nutrition
 from model import create_model
 
 
-# ==============================
+# ============================================================
 # Configuration
-# ==============================
+# ============================================================
 
 MODEL_PATH = "models/foodseg_model_best.pth"
 IMAGE_PATH = "images.jpg"
@@ -26,123 +28,30 @@ DEVICE = torch.device(
 )
 
 
-# ==============================
-# FoodSeg103 Labels
-# ==============================
+# ============================================================
+# FoodSeg103 class labels
+# ============================================================
 
+# Important class IDs detected in your current image.
+# Add the rest of your FoodSeg103 labels here later if needed.
 ID_TO_LABEL = {
     0: "background",
-    1: "candy",
-    2: "egg tart",
-    3: "french fries",
-    4: "chocolate",
-    5: "biscuit",
-    6: "popcorn",
-    7: "pudding",
+
     8: "ice cream",
-    9: "cheese butter",
-    10: "cake",
-    11: "wine",
-    12: "milkshake",
-    13: "coffee",
-    14: "juice",
-    15: "milk",
-    16: "tea",
-    17: "almond",
-    18: "red beans",
-    19: "cashew",
-    20: "dried cranberries",
-    21: "soy",
-    22: "walnut",
-    23: "peanut",
-    24: "egg",
-    25: "apple",
-    26: "date",
-    27: "apricot",
-    28: "avocado",
     29: "banana",
     30: "strawberry",
-    31: "cherry",
-    32: "blueberry",
-    33: "raspberry",
-    34: "mango",
-    35: "olives",
-    36: "peach",
-    37: "lemon",
-    38: "pear",
-    39: "fig",
-    40: "pineapple",
-    41: "grape",
-    42: "kiwi",
-    43: "melon",
-    44: "orange",
-    45: "watermelon",
     46: "steak",
-    47: "pork",
-    48: "chicken duck",
     49: "sausage",
-    50: "fried meat",
-    51: "lamb",
-    52: "sauce",
-    53: "crab",
-    54: "fish",
-    55: "shellfish",
-    56: "shrimp",
-    57: "soup",
     58: "bread",
-    59: "corn",
-    60: "hamburg",
-    61: "pizza",
-    62: "hanamaki baozi",
-    63: "wonton dumplings",
-    64: "pasta",
-    65: "noodles",
-    66: "rice",
-    67: "pie",
-    68: "tofu",
-    69: "eggplant",
     70: "potato",
-    71: "garlic",
-    72: "cauliflower",
-    73: "tomato",
-    74: "kelp",
-    75: "seaweed",
-    76: "spring onion",
-    77: "rape",
-    78: "ginger",
-    79: "okra",
-    80: "lettuce",
-    81: "pumpkin",
-    82: "cucumber",
-    83: "white radish",
-    84: "carrot",
-    85: "asparagus",
-    86: "bamboo shoots",
-    87: "broccoli",
-    88: "celery stick",
-    89: "cilantro mint",
-    90: "snow peas",
-    91: "cabbage",
-    92: "bean sprouts",
-    93: "onion",
-    94: "pepper",
-    95: "green beans",
-    96: "French beans",
-    97: "king oyster mushroom",
-    98: "shiitake",
-    99: "enoki mushroom",
-    100: "oyster mushroom",
-    101: "white button mushroom",
-    102: "salad",
-    103: "other ingredients",
 }
 
 
-# ==============================
-# Load model
-# ==============================
+# ============================================================
+# Load trained model
+# ============================================================
 
-print("Loading model...")
+print(f"Using device: {DEVICE}")
 
 model = create_model()
 
@@ -156,24 +65,16 @@ model.load_state_dict(
 model = model.to(DEVICE)
 model.eval()
 
-print(f"Using device: {DEVICE}")
-print("Model loaded successfully!")
+print("Model loaded successfully.")
 
 
-# ==============================
-# Load image
-# ==============================
-
-print("\nLoading image...")
+# ============================================================
+# Load and preprocess image
+# ============================================================
 
 image = Image.open(IMAGE_PATH).convert("RGB")
 
-print(f"Original image size: {image.size}")
-
-
-# ==============================
-# Preprocess image
-# ==============================
+original_image = image.copy()
 
 transform = transforms.Compose([
     transforms.Resize((256, 256)),
@@ -181,42 +82,39 @@ transform = transforms.Compose([
 ])
 
 input_tensor = transform(image)
-
-# Add batch dimension
 input_tensor = input_tensor.unsqueeze(0)
-
-# Move image to CPU/GPU
 input_tensor = input_tensor.to(DEVICE)
 
-print(f"Input tensor shape: {input_tensor.shape}")
 
-
-# ==============================
+# ============================================================
 # Run inference
-# ==============================
-
-print("\nRunning inference...")
+# ============================================================
 
 with torch.no_grad():
-
     output = model(input_tensor)["out"]
 
-    prediction = torch.argmax(
-        output,
-        dim=1
-    )
+
+# Convert logits into class probabilities
+probabilities = torch.softmax(output, dim=1)
 
 
-# Remove batch dimension
-prediction = prediction.squeeze(0)
+# Best predicted class for every pixel
+prediction = torch.argmax(
+    probabilities,
+    dim=1
+)[0].cpu().numpy()
 
-# Move prediction to CPU
-prediction = prediction.cpu().numpy()
+
+# Confidence of the selected class for every pixel
+confidence_map = torch.max(
+    probabilities,
+    dim=1
+)[0][0].cpu().numpy()
 
 
-# ==============================
-# Analyze prediction
-# ==============================
+# ============================================================
+# Analyze detected food classes
+# ============================================================
 
 unique_classes, pixel_counts = np.unique(
     prediction,
@@ -225,132 +123,172 @@ unique_classes, pixel_counts = np.unique(
 
 total_pixels = prediction.size
 
-# Store detected foods and pixel counts
 detected_foods = {}
 
-print("\n==============================")
-print("Detected Foods")
-print("==============================")
-
-for class_id, count in zip(
+for class_id, pixel_count in zip(
     unique_classes,
     pixel_counts
 ):
-
-    percentage = (
-        count / total_pixels
-    ) * 100
+    class_id = int(class_id)
 
     food_name = ID_TO_LABEL.get(
-        int(class_id),
-        "unknown"
+        class_id,
+        f"unknown_class_{class_id}"
     )
 
-    detected_foods[food_name] = int(count)
-
-    print(
-        f"{food_name}: "
-        f"{percentage:.2f}% "
-        f"({count} pixels)"
-    )
+    detected_foods[class_id] = {
+        "name": food_name,
+        "pixel_count": int(pixel_count)
+    }
 
 
-# ==============================
-# Main detected food
-# ==============================
+print("\nDetected food classes:")
 
-non_background = [
-    (class_id, count)
-    for class_id, count in zip(
-        unique_classes,
-        pixel_counts
-    )
-    if class_id != 0
-]
+for class_id, food_info in detected_foods.items():
 
-if non_background:
-
-    main_class, main_count = max(
-        non_background,
-        key=lambda x: x[1]
-    )
-
-    main_food = ID_TO_LABEL.get(
-        int(main_class),
-        "unknown"
-    )
-
-    main_percentage = (
-        main_count / total_pixels
-    ) * 100
-
-    print("\n==============================")
-    print("MAIN DETECTION")
-    print("==============================")
-
-    print(f"Food: {main_food}")
-    print(f"Pixel coverage: {main_percentage:.2f}%")
-
-else:
-
-    print("\nNo food detected.")
-
-
-# ==============================
-# Multi-food nutrition estimation
-# ==============================
-
-print("\n==============================")
-print("MULTI-FOOD NUTRITION ESTIMATION")
-print("==============================")
-
-total_calories = 0
-total_protein = 0
-
-for food_name, pixel_count in detected_foods.items():
-
-    # Ignore background
-    if food_name == "background":
-        continue
+    pixel_count = food_info["pixel_count"]
+    food_name = food_info["name"]
 
     pixel_percentage = (
         pixel_count / total_pixels
     ) * 100
 
-    # Ignore very small detections
-    # These may be false positives.
-    if pixel_percentage < 2.0:
+    print(
+        f"{food_name}: "
+        f"{pixel_percentage:.2f}% of image"
+    )
+
+
+# ============================================================
+# Find largest detected food class
+# ============================================================
+
+non_background_foods = {
+    class_id: food_info
+    for class_id, food_info in detected_foods.items()
+    if class_id != 0
+}
+
+if non_background_foods:
+
+    largest_class_id = max(
+        non_background_foods,
+        key=lambda class_id: (
+            non_background_foods[class_id]["pixel_count"]
+        )
+    )
+
+    largest_food = non_background_foods[
+        largest_class_id
+    ]["name"]
+
+    largest_pixel_count = non_background_foods[
+        largest_class_id
+    ]["pixel_count"]
+
+    largest_food_percentage = (
+        largest_pixel_count / total_pixels
+    ) * 100
+
+    print("\nLargest detected food:")
+    print(
+        f"{largest_food} "
+        f"({largest_food_percentage:.2f}% of image)"
+    )
+
+else:
+    print("\nNo food detected.")
+
+
+# ============================================================
+# Estimate calories and protein
+# ============================================================
+
+total_calories = 0
+total_protein = 0.0
+
+MIN_PIXEL_PERCENTAGE = 2.0
+MIN_CONFIDENCE = 0.30
+
+
+print("\nNutrition estimates:")
+
+for class_id, food_info in detected_foods.items():
+
+    # Ignore background
+    if class_id == 0:
+        continue
+
+    food_name = food_info["name"]
+    pixel_count = food_info["pixel_count"]
+
+    pixel_percentage = (
+        pixel_count / total_pixels
+    ) * 100
+
+    # Create mask using numeric class ID
+    food_mask = prediction == class_id
+
+    # Calculate average confidence for this class
+    if pixel_count > 0:
+        average_confidence = np.mean(
+            confidence_map[food_mask]
+        )
+    else:
+        average_confidence = 0.0
+
+    # Ignore small or low-confidence detections
+    if (
+        pixel_percentage < MIN_PIXEL_PERCENTAGE
+        or average_confidence < MIN_CONFIDENCE
+    ):
+        print(
+            f"\nIgnoring weak detection: "
+            f"{food_name}"
+        )
 
         print(
-            f"\nIgnoring small detection: "
-            f"{food_name} "
-            f"({pixel_percentage:.2f}%)"
+            f"  Image coverage: "
+            f"{pixel_percentage:.2f}%"
+        )
+
+        print(
+            f"  Average confidence: "
+            f"{average_confidence * 100:.2f}%"
         )
 
         continue
 
-    # Estimate portion size
+    # Skip classes that are not yet included in the label map
+    if food_name.startswith("unknown_class_"):
+        print(
+            f"\nSkipping unknown class: "
+            f"{food_name}"
+        )
+        continue
+
+    # Estimate food weight
     estimated_weight = estimate_food_weight(
         food_name,
         pixel_percentage
     )
 
-    # Look up nutrition information
+    # Get nutrition information
     nutrition = get_nutrition(food_name)
 
     if nutrition is None:
-
         print(
-            f"\n{food_name}: "
-            f"nutrition data unavailable"
+            f"\nNo nutrition data available "
+            f"for {food_name}"
         )
-
         continue
 
+    # Calculate calories
     calories = (
         estimated_weight / 100
     ) * nutrition["calories_per_100g"]
 
+    # Calculate protein
     protein = (
         estimated_weight / 100
     ) * nutrition["protein_per_100g"]
@@ -362,38 +300,66 @@ for food_name, pixel_count in detected_foods.items():
     total_protein += protein
 
     print(f"\nFood: {food_name}")
-    print(f"Pixel coverage: {pixel_percentage:.2f}%")
-    print(f"Estimated weight: {estimated_weight} g")
-    print(f"Estimated calories: {calories} kcal")
-    print(f"Estimated protein: {protein} g")
+
+    print(
+        f"  Class ID: "
+        f"{class_id}"
+    )
+
+    print(
+        f"  Image coverage: "
+        f"{pixel_percentage:.2f}%"
+    )
+
+    print(
+        f"  Average confidence: "
+        f"{average_confidence * 100:.2f}%"
+    )
+
+    print(
+        f"  Estimated weight: "
+        f"{estimated_weight:.1f} g"
+    )
+
+    print(
+        f"  Calories: "
+        f"{calories} kcal"
+    )
+
+    print(
+        f"  Protein: "
+        f"{protein} g"
+    )
 
 
-# ==============================
+# ============================================================
 # Total nutrition
-# ==============================
+# ============================================================
 
-print("\n==============================")
+print("\n" + "=" * 45)
 print("TOTAL NUTRITION ESTIMATE")
-print("==============================")
+print("=" * 45)
 
 print(
-    f"Total estimated calories: "
-    f"{round(total_calories)} kcal"
+    f"Total calories: "
+    f"{total_calories} kcal"
 )
 
 print(
-    f"Total estimated protein: "
-    f"{round(total_protein, 1)} g"
+    f"Total protein: "
+    f"{total_protein:.1f} g"
 )
 
-print()
-print("Note: Portion sizes and nutrition values")
-print("are approximate heuristic estimates.")
+print(
+    "\nNote: These are approximate estimates. "
+    "Accuracy depends on segmentation quality, "
+    "portion estimation, and nutrition data."
+)
 
 
-# ==============================
-# Create steak mask
-# ==============================
+# ============================================================
+# Steak-specific mask analysis
+# ============================================================
 
 STEAK_CLASS_ID = 46
 
@@ -401,91 +367,68 @@ steak_mask = (
     prediction == STEAK_CLASS_ID
 ).astype(np.uint8)
 
-steak_pixels = np.sum(steak_mask)
+steak_pixel_count = np.sum(steak_mask)
 
 steak_percentage = (
-    steak_pixels / total_pixels
+    steak_pixel_count / total_pixels
 ) * 100
 
-print("\n==============================")
-print("STEAK SEGMENTATION")
-print("==============================")
+print("\nSteak mask analysis:")
 
-print(f"Steak pixels: {steak_pixels}")
-print(f"Total pixels: {total_pixels}")
-print(f"Steak coverage: {steak_percentage:.2f}%")
-
-
-# ==============================
-# Display results
-# ==============================
-
-plt.figure(figsize=(20, 5))
-
-
-# ------------------------------
-# Original image
-# ------------------------------
-
-plt.subplot(1, 4, 1)
-
-plt.imshow(image)
-
-plt.title("Original Image")
-
-plt.axis("off")
-
-
-# ------------------------------
-# Full segmentation
-# ------------------------------
-
-plt.subplot(1, 4, 2)
-
-plt.imshow(prediction)
-
-plt.title("Predicted Segmentation")
-
-plt.axis("off")
-
-
-# ------------------------------
-# Steak mask
-# ------------------------------
-
-plt.subplot(1, 4, 3)
-
-plt.imshow(
-    steak_mask,
-    cmap="gray"
+print(
+    f"Steak pixels: "
+    f"{steak_pixel_count}"
 )
 
-plt.title("Steak Mask")
+print(
+    f"Steak image coverage: "
+    f"{steak_percentage:.2f}%"
+)
 
+
+# ============================================================
+# Visualization
+# ============================================================
+
+plt.figure(figsize=(16, 5))
+
+
+# Original image
+plt.subplot(1, 4, 1)
+plt.imshow(original_image)
+plt.title("Original Image")
 plt.axis("off")
 
 
-# ------------------------------
-# Steak mask overlay
-# ------------------------------
+# Predicted segmentation
+plt.subplot(1, 4, 2)
+plt.imshow(prediction, cmap="tab20")
+plt.title("Predicted Segmentation")
+plt.axis("off")
+
+
+# Steak mask
+plt.subplot(1, 4, 3)
+plt.imshow(steak_mask, cmap="gray")
+plt.title("Steak Mask")
+plt.axis("off")
+
+
+# Segmentation overlay
+resized_original = original_image.resize(
+    (256, 256)
+)
 
 plt.subplot(1, 4, 4)
-
-resized_image = image.resize((256, 256))
-
-plt.imshow(resized_image)
-
+plt.imshow(resized_original)
 plt.imshow(
-    steak_mask,
-    cmap="gray",
-    alpha=0.5
+    prediction,
+    cmap="tab20",
+    alpha=0.45
 )
-
-plt.title("Steak Mask Overlay")
-
+plt.title("Segmentation Overlay")
 plt.axis("off")
 
 
 plt.tight_layout()
-
 plt.show()
