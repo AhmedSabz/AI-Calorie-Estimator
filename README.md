@@ -1,319 +1,44 @@
 # AI Calorie Estimator
 
-A computer vision and deep learning project that analyzes food images to identify and segment food items, with the goal of estimating portion size and calories.
+An image-based food segmentation and nutrition estimation system built with **Python, PyTorch, and DeepLabV3**.
 
-The project uses **PyTorch, DeepLabV3, ResNet-50, and the FoodSeg103 dataset** to perform pixel-level food segmentation.
+The project analyzes an image of plated food, identifies food categories using semantic segmentation, estimates the approximate portion size, and calculates estimated calories and protein.
 
-> **Current Status:** Food segmentation and inference are implemented. Portion estimation and calorie prediction are currently under development.
-
----
-
-## Project Overview
-
-The goal of this project is to build an end-to-end food analysis pipeline:
-
-```text
-Food Image
-    ↓
-Food Segmentation
-    ↓
-Food Identification
-    ↓
-Portion Estimation
-    ↓
-Nutrition Lookup
-    ↓
-Calorie Estimation
-```
-
-The current implementation focuses on **food segmentation, food identification, and inference**.
+> **Note:** This project is an experimental machine learning prototype. Nutrition values are approximate and should not be treated as medically accurate.
 
 ---
 
-## Current Features
+## Features
 
-- Food image preprocessing using PyTorch and torchvision
-- Semantic segmentation of food images
-- DeepLabV3 with ResNet-50 backbone
-- Support for 104 FoodSeg103 classes
-- GPU training using NVIDIA CUDA
-- Validation-based model evaluation
-- Best-model checkpointing
-- Food class identification from unseen images
-- Binary masks for individual food categories
-- Segmentation visualization and overlays
-
----
-
-## Model
-
-The project uses:
-
-**DeepLabV3 + ResNet-50**
-
-The model was modified to output predictions for all **104 FoodSeg103 classes**, including background.
-
-### Input
-
-```text
-256 × 256 RGB image
-```
-
-### Output
-
-```text
-104 × 256 × 256 segmentation map
-```
-
-Each pixel is assigned a food category.
+- Food image classification through semantic segmentation
+- Pixel-level food detection
+- Food category identification
+- Confidence-based filtering of weak detections
+- Approximate food portion estimation
+- Calorie estimation
+- Protein estimation
+- Food segmentation visualization
+- CPU inference support
+- Optional GPU acceleration with CUDA
 
 ---
 
-## Dataset
+## Tech Stack
 
-This project uses the **FoodSeg103** dataset.
-
-### Dataset Statistics
-
-- **7,118 total images**
-- **4,983 training images**
-- **2,135 validation images**
-- **104 food categories**
-
-Example categories include:
-
-- Steak
-- Chicken
-- Rice
-- Potato
-- Bread
-- Pizza
-- Pasta
-- Banana
-- Strawberry
-- Apple
-- Fish
-- Shrimp
-- Vegetables
-- and many others
-
-### Dataset Source
-
-**FoodSeg103**
-
-`EduardoPacheco/FoodSeg103`
+- **Python**
+- **PyTorch**
+- **Torchvision**
+- **NumPy**
+- **Matplotlib**
+- **Pillow**
+- **Hugging Face Datasets**
+- **DeepLabV3**
+- **ResNet-50**
+- **FoodSeg103 Dataset**
 
 ---
 
-## Data Preprocessing
-
-Images are resized to:
-
-```text
-256 × 256
-```
-
-and converted into PyTorch tensors.
-
-Segmentation masks contain integer class IDs corresponding to the FoodSeg103 categories.
-
-The preprocessing pipeline is:
-
-```text
-Image
-   ↓
-Resize to 256 × 256
-   ↓
-Convert to Tensor
-   ↓
-PyTorch DataLoader
-   ↓
-DeepLabV3
-```
-
-Training uses a batch size of **2** to reduce GPU memory requirements.
-
----
-
-## Training
-
-The model was trained using an **NVIDIA Tesla T4 GPU** through Google Colab.
-
-### Training Configuration
-
-```text
-Model: DeepLabV3 + ResNet-50
-Dataset: FoodSeg103
-Image Size: 256 × 256
-Batch Size: 2
-Learning Rate: 0.0001
-Epochs: 5
-Optimizer: Adam
-Device: NVIDIA Tesla T4
-```
-
-A validation set is evaluated after every epoch, and the model with the best Mean IoU is saved as the best checkpoint.
-
----
-
-## Training Results
-
-The model was trained for 5 epochs.
-
-| Epoch | Training Loss | Validation Loss | Pixel Accuracy | Mean IoU |
-|------:|--------------:|----------------:|---------------:|---------:|
-| 1 | 2.0612 | 1.6185 | 60.75% | 4.63% |
-| 2 | 1.6191 | 1.4388 | 63.91% | 7.36% |
-| 3 | 1.4321 | 1.3962 | 64.38% | 8.88% |
-| 4 | 1.3008 | 1.3134 | 66.31% | 10.80% |
-| 5 | 1.1886 | 1.2526 | 67.41% | 11.87% |
-
-### Best Model
-
-```text
-Pixel Accuracy: 67.41%
-Mean IoU: 11.87%
-```
-
-The current model is considered a **prototype segmentation model** rather than a production-quality system. Further training and model improvements are planned.
-
----
-
-## Inference
-
-The project includes an inference pipeline that loads a trained model and analyzes a new food image.
-
-Run:
-
-```bash
-python ml/inference.py
-```
-
-The inference pipeline:
-
-1. Loads the trained DeepLabV3 model
-2. Loads an input food image
-3. Resizes the image to 256 × 256
-4. Converts the image to a PyTorch tensor
-5. Runs the image through the model
-6. Generates a pixel-level segmentation
-7. Identifies detected food categories
-8. Calculates pixel coverage
-9. Generates binary masks for individual foods
-10. Visualizes the segmentation results
-
----
-
-## Example Inference
-
-The model was tested on an unseen steak image.
-
-The model identified **steak** as the primary food class.
-
-Example output:
-
-```text
-==============================
-MAIN DETECTION
-==============================
-
-Food: steak
-Pixel coverage: 46.89%
-```
-
-The model also generated a binary steak segmentation mask:
-
-```text
-Steak      → White
-Everything → Black
-```
-
-This binary mask provides the foundation for future portion-size estimation.
-
----
-
-## Portion Estimation
-
-The next stage of the project is estimating the physical portion size of detected food.
-
-The current approach uses image-derived food area as a **heuristic estimate**.
-
-The planned pipeline is:
-
-```text
-Steak Image
-     ↓
-Steak Segmentation
-     ↓
-Steak Pixel Area
-     ↓
-Portion Estimation
-     ↓
-Estimated Weight
-```
-
-### Important Limitation
-
-Pixel coverage does **not** directly correspond to physical weight.
-
-Factors such as:
-
-- Camera distance
-- Viewing angle
-- Perspective
-- Food thickness
-- Image composition
-- Size of the food relative to the camera
-
-can significantly affect the relationship between pixels and actual weight.
-
-Therefore, portion estimates are treated as approximations rather than direct measurements.
-
-Future versions may investigate more reliable approaches such as reference objects, additional visual cues, or learned portion-estimation models.
-
----
-
-## Calorie Estimation
-
-The final goal is to connect the detected food and estimated portion size to nutritional information.
-
-The planned pipeline is:
-
-```text
-Food Image
-     ↓
-Food Segmentation
-     ↓
-Food Identification
-     ↓
-Portion Estimation
-     ↓
-Estimated Weight
-     ↓
-Nutrition Information
-     ↓
-Calories
-```
-
-For example:
-
-```text
-Steak
-  ↓
-Estimated portion
-  ↓
-Estimated grams
-  ↓
-Calories per 100 g
-  ↓
-Estimated total calories
-```
-
-This portion of the system is currently under development.
-
----
-
-## Project Structure
+## Project Architecture
 
 ```text
 AI-Calorie-Estimator/
@@ -330,17 +55,141 @@ AI-Calorie-Estimator/
 │   ├── train.py
 │   ├── evaluate.py
 │   ├── inference.py
-│   └── portion_estimator.py
+│   ├── portion_estimator.py
+│   ├── general_portion_estimator.py
+│   ├── calorie_estimator.py
+│   └── nutrition_database.py
 │
 ├── models/
 │   └── foodseg_model_best.pth
 │
-├── .gitignore
+├── images.jpg
 ├── README.md
-└── images.jpg
+└── .gitignore
 ```
 
-> Model checkpoint files are excluded from Git using `.gitignore`.
+---
+
+## How It Works
+
+The system follows this pipeline:
+
+```text
+Food Image
+    |
+    v
+Image Preprocessing
+    |
+    v
+DeepLabV3 Semantic Segmentation Model
+    |
+    v
+Pixel-Level Food Predictions
+    |
+    v
+Confidence Filtering
+    |
+    v
+Food Portion Estimation
+    |
+    v
+Nutrition Database Lookup
+    |
+    v
+Estimated Calories and Protein
+```
+
+---
+
+## Dataset
+
+This project uses the **FoodSeg103** dataset.
+
+FoodSeg103 contains food images with pixel-level semantic segmentation labels for 103 food categories plus background.
+
+### Dataset Information
+
+- Training images: 4,983
+- Validation images: 2,135
+- Food categories: 103
+- Total segmentation classes: 104 including background
+- Input image size: `256 × 256`
+
+Dataset source:
+
+[FoodSeg103 on Hugging Face](https://huggingface.co/datasets/EduardoPacheco/FoodSeg103)
+
+---
+
+## Model
+
+The segmentation model is based on:
+
+```text
+DeepLabV3
+    |
+    └── ResNet-50 Backbone
+```
+
+The model produces a segmentation map with 104 output classes:
+
+```text
+[background + 103 food categories]
+```
+
+Each pixel is assigned a predicted food category. The model output is converted into class probabilities using:
+
+```python
+torch.softmax(output, dim=1)
+```
+
+The predicted class for each pixel is selected using:
+
+```python
+torch.argmax(probabilities, dim=1)
+```
+
+---
+
+## Training
+
+The model was trained using:
+
+- Optimizer: Adam
+- Learning rate: `0.0001`
+- Batch size: `2`
+- Image size: `256 × 256`
+- Loss function: Cross-Entropy Loss
+- Device: CUDA GPU during training
+- Architecture: DeepLabV3 with ResNet-50
+
+### Example Training Configuration
+
+```python
+BATCH_SIZE = 2
+LEARNING_RATE = 0.0001
+EPOCHS = 5
+IMAGE_SIZE = 256
+```
+
+The best model checkpoint is saved as:
+
+```text
+models/foodseg_model_best.pth
+```
+
+---
+
+## Model Evaluation
+
+The current experimental model achieved approximately:
+
+| Metric | Result |
+|---|---:|
+| Pixel Accuracy | 67.41% |
+| Mean IoU | 11.87% |
+
+These results show that the model can identify dominant food regions, but the segmentation quality still needs improvement before production use.
 
 ---
 
@@ -360,234 +209,218 @@ cd AI-Calorie-Estimator
 
 ### 3. Create a virtual environment
 
-```bash
+On Windows:
+
+```powershell
 python -m venv .venv
 ```
 
 ### 4. Activate the virtual environment
 
-On Windows PowerShell:
-
 ```powershell
-.venv\Scripts\Activate.ps1
+.\.venv\Scripts\Activate.ps1
 ```
 
 ### 5. Install dependencies
 
-```bash
-pip install torch torchvision datasets pillow numpy matplotlib
+```powershell
+pip install torch torchvision numpy matplotlib pillow datasets
 ```
 
 ---
 
-## Running the Project
+## Running Inference
 
-### Test the Dataset Pipeline
-
-```bash
-python ml/prepare_dataset.py
-```
-
-This verifies that images and segmentation masks can be loaded correctly.
-
----
-
-### Test the Model
-
-```bash
-python ml/model.py
-```
-
-This verifies that the DeepLabV3 model produces the expected output dimensions.
-
----
-
-### Train the Model
-
-```bash
-python ml/train.py
-```
-
-For GPU training, Google Colab with an NVIDIA GPU is recommended.
-
----
-
-### Evaluate the Model
-
-```bash
-python ml/evaluate.py
-```
-
-This evaluates the trained model on the validation dataset.
-
----
-
-### Run Inference
-
-```bash
-python ml/inference.py
-```
-
-This loads a trained model and performs food segmentation on an input image.
-
----
-
-## Hardware
-
-### Local Development
-
-The project was developed locally on Windows using CPU-based development and inference.
-
-### Model Training
-
-Model training was performed using:
+Place an input food image in the project root and name it:
 
 ```text
-GPU: NVIDIA Tesla T4
-VRAM: 15 GB
-Platform: Google Colab
+images.jpg
 ```
 
-GPU acceleration was used to make deep learning model training significantly more practical than CPU-only training.
+Then run:
+
+```powershell
+python .\ml\inference.py
+```
+
+The script will:
+
+1. Load the trained model.
+2. Load and preprocess the image.
+3. Predict food classes for each pixel.
+4. Filter small and low-confidence detections.
+5. Estimate food weight.
+6. Calculate calories and protein.
+7. Display segmentation visualizations.
 
 ---
 
-## Roadmap
+## Example Output
 
-### Completed
+For an image containing steak, the system produced an output similar to:
 
-- [x] FoodSeg103 dataset integration
-- [x] Dataset inspection
-- [x] Image preprocessing
-- [x] Segmentation mask preprocessing
-- [x] DeepLabV3 model
-- [x] ResNet-50 backbone
-- [x] GPU training
-- [x] Validation pipeline
-- [x] Best-model checkpointing
-- [x] Model evaluation
-- [x] Food segmentation inference
-- [x] Food class identification
-- [x] Binary food masks
-- [x] Segmentation visualization
+```text
+Detected food classes:
+background: 47.87% of image
+steak: 46.89% of image
+banana: 0.57% of image
+bread: 0.84% of image
+potato: 1.16% of image
 
-### In Progress
+Largest detected food:
+steak (46.89% of image)
 
-- [ ] Portion-size estimation
-- [ ] Nutrition database integration
-- [ ] Calorie estimation
-- [ ] End-to-end calorie prediction pipeline
+Food: steak
+Class ID: 46
+Image coverage: 46.89%
+Average confidence: 41.54%
+Estimated weight: 300.0 g
+Calories: 750 kcal
+Protein: 78.0 g
 
-### Future Improvements
+TOTAL NUTRITION ESTIMATE
+Total calories: 750 kcal
+Total protein: 78.0 g
+```
 
-- [ ] Train for more epochs
-- [ ] Improve Mean IoU
-- [ ] Add data augmentation
-- [ ] Experiment with different segmentation architectures
-- [ ] Improve portion-size estimation
-- [ ] Support multiple foods in a single meal
-- [ ] Add confidence scores
-- [ ] Build a web interface
-- [ ] Deploy the model as an API
-- [ ] Evaluate performance on additional real-world images
-- [ ] Add automated nutrition lookup
+---
+
+## Confidence Filtering
+
+The inference pipeline filters out detections that are:
+
+- Too small in the image
+- Below the minimum confidence threshold
+
+Current configuration:
+
+```python
+MIN_PIXEL_PERCENTAGE = 2.0
+MIN_CONFIDENCE = 0.30
+```
+
+This helps reduce false detections from small regions such as background noise or incorrectly predicted food categories.
+
+---
+
+## Portion Estimation
+
+The current portion estimator uses the percentage of the image occupied by a detected food class to estimate approximate food weight.
+
+For example:
+
+```text
+Detected food coverage → Estimated food weight
+```
+
+This is a heuristic approach and does not directly measure physical weight.
+
+Accuracy can be affected by:
+
+- Camera distance
+- Camera angle
+- Plate size
+- Food thickness
+- Lighting
+- Image resolution
+- Food overlap
+- Segmentation accuracy
+
+A future version could improve portion estimation using depth estimation, reference objects, or a calibrated camera setup.
+
+---
+
+## Nutrition Estimation
+
+The system uses a nutrition database containing values per 100 grams.
+
+The calculation is:
+
+```text
+Estimated Calories =
+    Estimated Weight / 100 × Calories per 100g
+```
+
+```text
+Estimated Protein =
+    Estimated Weight / 100 × Protein per 100g
+```
+
+Example:
+
+```text
+300g steak
+250 calories per 100g
+26g protein per 100g
+```
+
+Produces approximately:
+
+```text
+750 calories
+78g protein
+```
 
 ---
 
 ## Limitations
 
-The current model is a prototype.
+This project is currently a research and portfolio prototype.
 
-### Segmentation
+Known limitations include:
 
-The model currently achieves:
-
-```text
-Pixel Accuracy: 67.41%
-Mean IoU: 11.87%
-```
-
-The relatively low Mean IoU indicates that segmentation quality still has significant room for improvement.
-
-Potential improvements include:
-
-- More training epochs
-- Data augmentation
-- Improved preprocessing
-- Hyperparameter tuning
-- Different segmentation architectures
-- Larger or more specialized training datasets
-
-### Portion Estimation
-
-Image pixel area does not directly provide food weight.
-
-Portion estimates can be affected by:
-
-- Camera distance
-- Perspective
-- Viewing angle
-- Food thickness
-- Lighting
-- Image composition
-
-Therefore, calorie estimates should be considered approximate.
+- Segmentation accuracy is still limited.
+- The model may detect incorrect food categories.
+- Confidence scores are not guaranteed to represent true probabilities.
+- Portion size is estimated from 2D image coverage.
+- Multiple foods may overlap in the image.
+- Food preparation methods can change nutritional values.
+- The nutrition database may not contain every detected food.
+- Results should not be used for medical or dietary decisions.
 
 ---
 
-## Technologies
+## Future Improvements
 
-### Programming
+Planned improvements include:
 
-- Python
-
-### Machine Learning
-
-- PyTorch
-- Torchvision
-- DeepLabV3
-- ResNet-50
-
-### Computer Vision
-
-- Semantic segmentation
-- Pixel-level classification
-- Image preprocessing
-- Binary segmentation masks
-
-### Data
-
-- FoodSeg103
-- Hugging Face Datasets
-- NumPy
-- Pillow
-
-### Visualization
-
-- Matplotlib
-
-### Hardware / Infrastructure
-
-- NVIDIA CUDA
-- NVIDIA Tesla T4
-- Google Colab
+- Improve mean Intersection over Union
+- Train for more epochs
+- Add stronger data augmentation
+- Use a learning-rate scheduler
+- Experiment with alternative segmentation architectures
+- Improve small-object detection
+- Add more nutrition database entries
+- Improve portion estimation
+- Add food detection bounding boxes
+- Build a web interface using FastAPI
+- Build a mobile interface using Flutter
+- Add image upload functionality
+- Add meal history and tracking
+- Support multiple food items in one image
+- Deploy GPU inference
+- Add model confidence visualization
+- Compare predictions against manually labeled masks
 
 ---
 
-## Learning Objectives
+## Example Use Cases
 
-This project is being developed to gain practical experience with:
+- Food image analysis
+- Approximate calorie tracking
+- Protein estimation
+- Computer vision experimentation
+- Semantic segmentation research
+- Machine learning portfolio development
+- Nutrition estimation prototypes
 
-- Deep learning
-- Computer vision
-- Semantic segmentation
-- PyTorch model development
-- GPU-accelerated training
-- Dataset preprocessing
-- Model evaluation
-- Model inference
-- Computer vision-based measurement
-- End-to-end ML pipeline development
+---
+
+## Disclaimer
+
+This application provides approximate estimates for educational and experimental purposes only.
+
+It does not replace professional nutritional advice, medical guidance, or a certified food scale.
 
 ---
 
@@ -598,14 +431,4 @@ This project is being developed to gain practical experience with:
 M.S. Computer Engineering  
 San Jose State University
 
-GitHub:
-
-`https://github.com/AhmedSabz`
-
----
-
-## Disclaimer
-
-This project is an experimental computer vision and machine learning project.
-
-Calorie and portion estimates are not intended to replace professional nutritional measurements or dietary advice.
+GitHub: [AhmedSabz](https://github.com/AhmedSabz)
