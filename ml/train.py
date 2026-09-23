@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -20,6 +21,13 @@ NUM_CLASSES = 104
 DEVICE = torch.device(
     "cuda" if torch.cuda.is_available() else "cpu"
 )
+
+
+# =========================
+# Create Model Directory
+# =========================
+
+os.makedirs("models", exist_ok=True)
 
 
 # =========================
@@ -86,6 +94,18 @@ criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(
     model.parameters(),
     lr=LEARNING_RATE
+)
+
+
+# =========================
+# Learning Rate Scheduler
+# =========================
+
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+    optimizer,
+    mode="min",
+    factor=0.5,
+    patience=2
 )
 
 
@@ -245,6 +265,11 @@ for epoch in range(NUM_EPOCHS):
         val_loader
     )
 
+    # Update learning rate based on validation loss
+    scheduler.step(val_loss)
+
+    current_lr = optimizer.param_groups[0]["lr"]
+
     print("\n==============================")
     print(f"Epoch {epoch + 1}/{NUM_EPOCHS}")
     print(
@@ -262,6 +287,10 @@ for epoch in range(NUM_EPOCHS):
     print(
         f"Mean IoU: "
         f"{mean_iou * 100:.2f}%"
+    )
+    print(
+        f"Learning Rate: "
+        f"{current_lr:.6f}"
     )
     print("==============================")
 
