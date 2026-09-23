@@ -24,10 +24,33 @@ DEVICE = torch.device(
 
 
 # =========================
-# Create Model Directory
+# Checkpoint Configuration
 # =========================
 
+# Google Drive checkpoint directory
+DRIVE_CHECKPOINT_DIR = (
+    "/content/drive/MyDrive/"
+    "AI-Calorie-Estimator/checkpoints"
+)
+
+os.makedirs(DRIVE_CHECKPOINT_DIR, exist_ok=True)
+
+# Local model directory
 os.makedirs("models", exist_ok=True)
+
+LATEST_CHECKPOINT = os.path.join(
+    DRIVE_CHECKPOINT_DIR,
+    "latest_checkpoint.pth"
+)
+
+BEST_MODEL_DRIVE = os.path.join(
+    DRIVE_CHECKPOINT_DIR,
+    "foodseg_model_best.pth"
+)
+
+BEST_MODEL_LOCAL = (
+    "models/foodseg_model_best.pth"
+)
 
 
 # =========================
@@ -62,9 +85,17 @@ val_loader = DataLoader(
     num_workers=0
 )
 
-print(f"Training images: {len(train_dataset)}")
-print(f"Validation images: {len(val_dataset)}")
-print(f"Batch size: {BATCH_SIZE}")
+print(
+    f"Training images: {len(train_dataset)}"
+)
+
+print(
+    f"Validation images: {len(val_dataset)}"
+)
+
+print(
+    f"Batch size: {BATCH_SIZE}"
+)
 
 
 # =========================
@@ -201,14 +232,64 @@ def evaluate(model, dataloader):
 
 
 # =========================
+# Resume From Checkpoint
+# =========================
+
+start_epoch = 0
+best_iou = 0.0
+
+if os.path.exists(LATEST_CHECKPOINT):
+
+    print("\nFound existing checkpoint.")
+    print("Loading checkpoint...")
+
+    checkpoint = torch.load(
+        LATEST_CHECKPOINT,
+        map_location=DEVICE
+    )
+
+    model.load_state_dict(
+        checkpoint["model_state_dict"]
+    )
+
+    optimizer.load_state_dict(
+        checkpoint["optimizer_state_dict"]
+    )
+
+    scheduler.load_state_dict(
+        checkpoint["scheduler_state_dict"]
+    )
+
+    start_epoch = checkpoint["epoch"]
+
+    best_iou = checkpoint["best_iou"]
+
+    print(
+        f"Resuming from epoch "
+        f"{start_epoch}/{NUM_EPOCHS}"
+    )
+
+    print(
+        f"Best Mean IoU so far: "
+        f"{best_iou * 100:.2f}%"
+    )
+
+else:
+
+    print("\nNo checkpoint found.")
+    print("Starting training from epoch 1.")
+
+
+# =========================
 # Training
 # =========================
 
 print("\nStarting training...")
 
-best_iou = 0.0
-
-for epoch in range(NUM_EPOCHS):
+for epoch in range(
+    start_epoch,
+    NUM_EPOCHS
+):
 
     model.train()
 
@@ -256,6 +337,7 @@ for epoch in range(NUM_EPOCHS):
         running_loss / len(train_loader)
     )
 
+
     # =========================
     # Validation
     # =========================
@@ -265,34 +347,49 @@ for epoch in range(NUM_EPOCHS):
         val_loader
     )
 
-    # Update learning rate based on validation loss
+    # Update learning rate
     scheduler.step(val_loss)
 
     current_lr = optimizer.param_groups[0]["lr"]
 
+
+    # =========================
+    # Print Results
+    # =========================
+
     print("\n==============================")
-    print(f"Epoch {epoch + 1}/{NUM_EPOCHS}")
+
+    print(
+        f"Epoch {epoch + 1}/{NUM_EPOCHS}"
+    )
+
     print(
         f"Training Loss: "
         f"{average_train_loss:.4f}"
     )
+
     print(
         f"Validation Loss: "
         f"{val_loss:.4f}"
     )
+
     print(
         f"Pixel Accuracy: "
         f"{pixel_accuracy * 100:.2f}%"
     )
+
     print(
         f"Mean IoU: "
         f"{mean_iou * 100:.2f}%"
     )
+
     print(
         f"Learning Rate: "
         f"{current_lr:.6f}"
     )
+
     print("==============================")
+
 
     # =========================
     # Save Best Model
@@ -302,23 +399,75 @@ for epoch in range(NUM_EPOCHS):
 
         best_iou = mean_iou
 
+        # Save to Google Drive
         torch.save(
             model.state_dict(),
-            "models/foodseg_model_best.pth"
+            BEST_MODEL_DRIVE
+        )
+
+        # Save locally
+        torch.save(
+            model.state_dict(),
+            BEST_MODEL_LOCAL
         )
 
         print(
-            f"New best model saved! "
-            f"Mean IoU: "
+            f"New best model saved!"
+        )
+
+        print(
+            f"Best Mean IoU: "
             f"{best_iou * 100:.2f}%"
         )
+
+
+    # =========================
+    # Save Latest Checkpoint
+    # =========================
+
+    checkpoint = {
+
+        "epoch": epoch + 1,
+
+        "model_state_dict":
+            model.state_dict(),
+
+        "optimizer_state_dict":
+            optimizer.state_dict(),
+
+        "scheduler_state_dict":
+            scheduler.state_dict(),
+
+        "best_iou":
+            best_iou,
+
+        "val_loss":
+            val_loss,
+
+        "pixel_accuracy":
+            pixel_accuracy,
+
+        "mean_iou":
+            mean_iou
+    }
+
+    torch.save(
+        checkpoint,
+        LATEST_CHECKPOINT
+    )
+
+    print(
+        f"Checkpoint saved to Google Drive."
+    )
 
 
 # =========================
 # Training Complete
 # =========================
 
-print("\nTraining completed successfully!")
+print(
+    "\nTraining completed successfully!"
+)
 
 print(
     f"Best Mean IoU: "
@@ -327,5 +476,16 @@ print(
 
 print(
     "\nBest model saved to:"
-    "\nmodels/foodseg_model_best.pth"
+)
+
+print(
+    BEST_MODEL_LOCAL
+)
+
+print(
+    "\nBest model also saved to:"
+)
+
+print(
+    BEST_MODEL_DRIVE
 )
