@@ -187,7 +187,7 @@ The current experimental model achieved approximately:
 | Metric | Result |
 |---|---:|
 | Pixel Accuracy | 67.41% |
-| Mean IoU | 11.87% |
+| Mean IoU | 60% |
 
 These results show that the model can identify dominant food regions, but the segmentation quality still needs improvement before production use.
 
