@@ -157,7 +157,7 @@ The model was trained using:
 
 - Optimizer: Adam
 - Learning rate: `0.0001`
-- Batch size: `2`
+- Batch size: `16`
 - Image size: `256 × 256`
 - Loss function: Cross-Entropy Loss
 - Device: CUDA GPU during training
