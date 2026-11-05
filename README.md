@@ -384,23 +384,11 @@ Known limitations include:
 
 Planned improvements include:
 
-- Improve mean Intersection over Union
-- Train for more epochs
-- Add stronger data augmentation
 - Use a learning-rate scheduler
 - Experiment with alternative segmentation architectures
 - Improve small-object detection
 - Add more nutrition database entries
-- Improve portion estimation
-- Add food detection bounding boxes
-- Build a web interface using FastAPI
-- Build a mobile interface using Flutter
-- Add image upload functionality
-- Add meal history and tracking
-- Support multiple food items in one image
-- Deploy GPU inference
-- Add model confidence visualization
-- Compare predictions against manually labeled masks
+
 
 ---
 
