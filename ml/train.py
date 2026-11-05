@@ -1,8 +1,11 @@
+
 import os
 import random
+import numpy as np
 import torch
 import torch.nn as nn
 
+from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 from datasets import load_dataset
 
@@ -14,65 +17,64 @@ from model import create_model
 # Configuration
 # =========================================================
 
-BATCH_SIZE = 16
-NUM_EPOCHS = 20
-NUM_CLASSES = 104
+SEED = 42
 
-# Different learning rates for backbone and segmentation head
+BATCH_SIZE = 16
+NUM_EPOCHS = 40
+NUM_CLASSES = 104
+IMAGE_SIZE = 256
+
 BACKBONE_LR = 1e-5
 HEAD_LR = 1e-4
 
 WEIGHT_DECAY = 1e-4
-EARLY_STOPPING_PATIENCE = 6
+
+EARLY_STOPPING_PATIENCE = 7
 MIN_DELTA = 0.001
 
-# Set this to True to exclude background class 0 from mIoU.
+MAX_CLASS_WEIGHT = 4.0
 EXCLUDE_BACKGROUND_FROM_MIOU = True
 
-NUM_WORKERS = 0
+NUM_WORKERS = 4
 
 DEVICE = torch.device(
     "cuda" if torch.cuda.is_available() else "cpu"
 )
 
-# Reproducibility
-SEED = 42
+CHECKPOINT_DIR = "checkpoints"
+MODEL_DIR = "models"
+
+os.makedirs(CHECKPOINT_DIR, exist_ok=True)
+os.makedirs(MODEL_DIR, exist_ok=True)
+
+# V3 uses separate files so earlier models remain untouched.
+LATEST_CHECKPOINT = os.path.join(
+    CHECKPOINT_DIR,
+    "latest_checkpoint_v3.pth"
+)
+
+BEST_MODEL_PATH = os.path.join(
+    MODEL_DIR,
+    "foodseg_model_v3_best.pth"
+)
+
+# Initialize V3 from the better V1 model if available.
+INITIAL_MODEL_PATH = os.path.join(
+    MODEL_DIR,
+    "foodseg_model_best.pth"
+)
+
+CHECKPOINT_VERSION = 4
 
 random.seed(SEED)
+np.random.seed(SEED)
 torch.manual_seed(SEED)
 
 if torch.cuda.is_available():
     torch.cuda.manual_seed_all(SEED)
+    torch.backends.cudnn.benchmark = True
 
-
-# =========================================================
-# Checkpoint Configuration
-# =========================================================
-
-DRIVE_CHECKPOINT_DIR = (
-    "/content/drive/MyDrive/"
-    "AI-Calorie-Estimator/checkpoints"
-)
-
-os.makedirs(DRIVE_CHECKPOINT_DIR, exist_ok=True)
-os.makedirs("models", exist_ok=True)
-
-LATEST_CHECKPOINT = os.path.join(
-    DRIVE_CHECKPOINT_DIR,
-    "latest_checkpoint.pth"
-)
-
-BEST_MODEL_DRIVE = os.path.join(
-    DRIVE_CHECKPOINT_DIR,
-    "foodseg_model_best.pth"
-)
-
-BEST_MODEL_LOCAL = os.path.join(
-    "models",
-    "foodseg_model_best.pth"
-)
-
-CHECKPOINT_VERSION = 2
+USE_AMP = DEVICE.type == "cuda"
 
 
 # =========================================================
@@ -80,12 +82,6 @@ CHECKPOINT_VERSION = 2
 # =========================================================
 
 class AugmentedDataset(Dataset):
-    """
-    Applies synchronized horizontal flipping to images and masks.
-
-    Images and masks must already be returned as tensors by
-    FoodSegDataset.
-    """
 
     def __init__(self, base_dataset, augment=False):
         self.base_dataset = base_dataset
@@ -95,15 +91,114 @@ class AugmentedDataset(Dataset):
         return len(self.base_dataset)
 
     def __getitem__(self, index):
+
         image, mask = self.base_dataset[index]
 
-        # Apply the exact same geometric transformation
-        # to the image and its segmentation mask.
+        # Synchronized horizontal flip.
         if self.augment and random.random() < 0.5:
             image = torch.flip(image, dims=[-1])
             mask = torch.flip(mask, dims=[-1])
 
         return image, mask
+
+
+# =========================================================
+# Calculate Training Class Frequencies
+# =========================================================
+
+def calculate_class_weights(train_data):
+
+    print("\nCalculating training class frequencies...")
+
+    pixel_counts = torch.zeros(
+        NUM_CLASSES,
+        dtype=torch.float64
+    )
+
+    for index in range(len(train_data)):
+
+        sample = train_data[index]
+        mask = sample["label"]
+
+        if not isinstance(mask, Image.Image):
+            mask = Image.fromarray(np.array(mask))
+
+        mask = mask.resize(
+            (IMAGE_SIZE, IMAGE_SIZE),
+            Image.Resampling.NEAREST
+        )
+
+        mask_array = np.asarray(mask, dtype=np.int64)
+
+        if mask_array.ndim != 2:
+            raise ValueError(
+                f"Invalid mask shape at index {index}: "
+                f"{mask_array.shape}"
+            )
+
+        if mask_array.min() < 0 or mask_array.max() >= NUM_CLASSES:
+            raise ValueError(
+                f"Invalid class ID in mask at index {index}"
+            )
+
+        counts = np.bincount(
+            mask_array.reshape(-1),
+            minlength=NUM_CLASSES
+        )
+
+        pixel_counts += torch.from_numpy(
+            counts.astype(np.float64)
+        )
+
+        if (index + 1) % 1000 == 0:
+            print(
+                f"Processed {index + 1}/{len(train_data)} masks"
+            )
+
+    present_classes = pixel_counts > 0
+
+    if not present_classes.any():
+        raise RuntimeError("No valid training pixels found.")
+
+    # Median frequency among classes present in training data.
+    median_frequency = pixel_counts[present_classes].median()
+
+    frequencies = pixel_counts / pixel_counts.sum()
+
+    # Square-root inverse-frequency weighting.
+    weights = torch.ones(NUM_CLASSES, dtype=torch.float32)
+
+    weights[present_classes] = torch.sqrt(
+        median_frequency / pixel_counts[present_classes]
+    ).float()
+
+    # Avoid extreme weights for very rare classes.
+    weights = torch.clamp(
+        weights,
+        min=0.25,
+        max=MAX_CLASS_WEIGHT
+    )
+
+    # Normalize average weight to approximately 1.
+    weights = weights / weights.mean()
+
+    print("\nClass weight statistics:")
+    print(f"Classes present: {present_classes.sum().item()}")
+    print(f"Minimum weight: {weights.min().item():.3f}")
+    print(f"Maximum weight: {weights.max().item():.3f}")
+
+    rare_classes = torch.argsort(pixel_counts)
+
+    print("\n10 least frequent training classes:")
+
+    for class_id in rare_classes[:10]:
+        print(
+            f"Class {class_id.item():3d}: "
+            f"{int(pixel_counts[class_id].item()):,} pixels, "
+            f"weight={weights[class_id].item():.3f}"
+        )
+
+    return weights
 
 
 # =========================================================
@@ -114,12 +209,19 @@ print("Loading FoodSeg103...")
 
 dataset = load_dataset("EduardoPacheco/FoodSeg103")
 
+train_data = dataset["train"]
+val_data = dataset["validation"]
+
+class_weights = calculate_class_weights(
+    train_data
+).to(DEVICE)
+
 base_train_dataset = FoodSegDataset(
-    dataset=dataset["train"]
+    dataset=train_data
 )
 
 base_val_dataset = FoodSegDataset(
-    dataset=dataset["validation"]
+    dataset=val_data
 )
 
 train_dataset = AugmentedDataset(
@@ -127,7 +229,6 @@ train_dataset = AugmentedDataset(
     augment=True
 )
 
-# Do not augment validation data.
 val_dataset = AugmentedDataset(
     base_val_dataset,
     augment=False
@@ -138,7 +239,8 @@ train_loader = DataLoader(
     batch_size=BATCH_SIZE,
     shuffle=True,
     num_workers=NUM_WORKERS,
-    pin_memory=torch.cuda.is_available()
+    pin_memory=USE_AMP,
+    persistent_workers=NUM_WORKERS > 0
 )
 
 val_loader = DataLoader(
@@ -146,75 +248,56 @@ val_loader = DataLoader(
     batch_size=BATCH_SIZE,
     shuffle=False,
     num_workers=NUM_WORKERS,
-    pin_memory=torch.cuda.is_available()
+    pin_memory=USE_AMP,
+    persistent_workers=NUM_WORKERS > 0
 )
 
-print(f"Training images: {len(train_dataset)}")
+print(f"\nTraining images: {len(train_dataset)}")
 print(f"Validation images: {len(val_dataset)}")
 print(f"Batch size: {BATCH_SIZE}")
 print(f"Device: {DEVICE}")
+print(f"Mixed precision: {USE_AMP}")
 
 
 # =========================================================
 # Create Model
 # =========================================================
 
-print("\nCreating model...")
+print("\nCreating DeepLabV3 model...")
 
 model = create_model().to(DEVICE)
-
-print(f"Using device: {DEVICE}")
-
 
 # =========================================================
 # Loss Function
 # =========================================================
 
-criterion = nn.CrossEntropyLoss()
+criterion = nn.CrossEntropyLoss(
+    weight=class_weights
+)
 
 
 # =========================================================
 # Optimizer
 # =========================================================
 
-# Standard torchvision DeepLabV3 models have backbone and
-# classifier modules. Use separate learning rates for them.
-
-if hasattr(model, "backbone") and hasattr(model, "classifier"):
-
-    optimizer = torch.optim.AdamW(
-        [
-            {
-                "params": model.backbone.parameters(),
-                "lr": BACKBONE_LR
-            },
-            {
-                "params": model.classifier.parameters(),
-                "lr": HEAD_LR
-            }
-        ],
-        weight_decay=WEIGHT_DECAY
-    )
-
-else:
-    # Fallback if create_model() returns a different architecture.
-    print(
-        "Warning: Could not find backbone/classifier modules. "
-        "Using one learning rate for all parameters."
-    )
-
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=HEAD_LR,
-        weight_decay=WEIGHT_DECAY
-    )
+optimizer = torch.optim.AdamW(
+    [
+        {
+            "params": model.backbone.parameters(),
+            "lr": BACKBONE_LR
+        },
+        {
+            "params": model.classifier.parameters(),
+            "lr": HEAD_LR
+        }
+    ],
+    weight_decay=WEIGHT_DECAY
+)
 
 
 # =========================================================
 # Learning Rate Scheduler
 # =========================================================
-
-# Improve learning rate when validation mIoU stops improving.
 
 scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
     optimizer,
@@ -226,7 +309,17 @@ scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
 
 
 # =========================================================
-# Validation Function
+# Mixed Precision
+# =========================================================
+
+scaler = torch.amp.GradScaler(
+    "cuda",
+    enabled=USE_AMP
+)
+
+
+# =========================================================
+# Validation
 # =========================================================
 
 def evaluate(model, dataloader):
@@ -236,9 +329,6 @@ def evaluate(model, dataloader):
     total_loss = 0.0
     total_images = 0
 
-    # Confusion matrix:
-    # rows = ground-truth classes
-    # columns = predicted classes
     confusion_matrix = torch.zeros(
         NUM_CLASSES,
         NUM_CLASSES,
@@ -260,10 +350,16 @@ def evaluate(model, dataloader):
                 non_blocking=True
             ).long()
 
-            outputs = model(images)
-            predictions = outputs["out"]
+            with torch.autocast(
+                device_type=DEVICE.type,
+                dtype=torch.float16,
+                enabled=USE_AMP
+            ):
 
-            loss = criterion(predictions, masks)
+                outputs = model(images)
+                predictions = outputs["out"]
+
+                loss = criterion(predictions, masks)
 
             batch_size = images.size(0)
 
@@ -272,7 +368,6 @@ def evaluate(model, dataloader):
 
             predicted_classes = predictions.argmax(dim=1)
 
-            # Build a confusion matrix efficiently.
             valid_pixels = (
                 (masks >= 0) &
                 (masks < NUM_CLASSES)
@@ -301,8 +396,6 @@ def evaluate(model, dataloader):
         - true_positives
     )
 
-    # Classes with no ground-truth or predicted pixels are
-    # undefined for IoU and are excluded from the mean.
     valid_classes = union > 0
 
     if EXCLUDE_BACKGROUND_FROM_MIOU:
@@ -319,164 +412,100 @@ def evaluate(model, dataloader):
         else 0.0
     )
 
-    total_correct = true_positives.sum().item()
-    total_pixels = confusion_matrix.sum().item()
-
     pixel_accuracy = (
-        total_correct / total_pixels
-        if total_pixels > 0
+        true_positives.sum().item()
+        / confusion_matrix.sum().item()
+        if confusion_matrix.sum().item() > 0
         else 0.0
     )
 
-    return (
-        validation_loss,
-        pixel_accuracy,
-        mean_iou
-    )
+    return validation_loss, pixel_accuracy, mean_iou
 
 
 # =========================================================
-# Checkpoint Loading
+# Checkpoint Loading / V1 Initialization
 # =========================================================
 
 start_epoch = 0
-best_iou = 0.0
+best_iou = -1.0
 epochs_without_improvement = 0
-
-# Resume only checkpoints created by this revised training
-# script, since the optimizer configuration has changed.
 
 if os.path.exists(LATEST_CHECKPOINT):
 
-    print("\nFound a previous checkpoint.")
+    print("\nFound V3 checkpoint.")
 
     checkpoint = torch.load(
         LATEST_CHECKPOINT,
-        map_location=DEVICE
+        map_location=DEVICE,
+        weights_only=False
     )
 
-    if checkpoint.get("checkpoint_version") == CHECKPOINT_VERSION:
-
-        print("Resuming compatible training checkpoint.")
-
-        model.load_state_dict(
-            checkpoint["model_state_dict"]
+    if checkpoint.get("checkpoint_version") != CHECKPOINT_VERSION:
+        raise RuntimeError(
+            "Incompatible V3 checkpoint version."
         )
 
-        optimizer.load_state_dict(
-            checkpoint["optimizer_state_dict"]
+    print("Resuming V3 training...")
+
+    model.load_state_dict(
+        checkpoint["model_state_dict"]
+    )
+
+    optimizer.load_state_dict(
+        checkpoint["optimizer_state_dict"]
+    )
+
+    scheduler.load_state_dict(
+        checkpoint["scheduler_state_dict"]
+    )
+
+    if "scaler_state_dict" in checkpoint:
+        scaler.load_state_dict(
+            checkpoint["scaler_state_dict"]
         )
 
-        scheduler.load_state_dict(
-            checkpoint["scheduler_state_dict"]
+    start_epoch = checkpoint["epoch"]
+    best_iou = checkpoint["best_iou"]
+
+    epochs_without_improvement = checkpoint.get(
+        "epochs_without_improvement",
+        0
+    )
+
+    print(f"Resuming at epoch {start_epoch + 1}")
+    print(f"Best mIoU: {best_iou * 100:.2f}%")
+
+else:
+
+    print("\nNo V3 checkpoint found.")
+
+    if os.path.exists(INITIAL_MODEL_PATH):
+
+        print("Initializing from V1 best checkpoint...")
+
+        v1_state = torch.load(
+            INITIAL_MODEL_PATH,
+            map_location=DEVICE,
+            weights_only=True
         )
 
-        start_epoch = checkpoint["epoch"]
-        best_iou = checkpoint["best_iou"]
+        model.load_state_dict(v1_state)
 
-        epochs_without_improvement = checkpoint.get(
-            "epochs_without_improvement",
-            0
-        )
-
-        print(f"Resuming after epoch {start_epoch}.")
-        print(f"Best mIoU so far: {best_iou * 100:.2f}%")
+        print("V1 weights loaded successfully.")
 
     else:
 
         print(
-            "Old checkpoint detected. Its optimizer settings "
-            "are incompatible with this revised script."
+            "V1 checkpoint not found. "
+            "Using ImageNet-pretrained initialization."
         )
-
-        # Reuse the previous best model weights if available.
-        if os.path.exists(BEST_MODEL_DRIVE):
-
-            print("Loading previous best model weights.")
-
-            weights = torch.load(
-                BEST_MODEL_DRIVE,
-                map_location=DEVICE
-            )
-
-            model.load_state_dict(weights)
-
-        elif os.path.exists(BEST_MODEL_LOCAL):
-
-            print("Loading local best model weights.")
-
-            weights = torch.load(
-                BEST_MODEL_LOCAL,
-                map_location=DEVICE
-            )
-
-            model.load_state_dict(weights)
-
-        else:
-            print(
-                "No compatible best model found. "
-                "Training will start with create_model() weights."
-            )
-
-else:
-
-    # If the latest checkpoint is missing but a best model exists,
-    # use those weights as the starting point.
-    if os.path.exists(BEST_MODEL_DRIVE):
-
-        print("\nLoading existing best model from Drive.")
-
-        weights = torch.load(
-            BEST_MODEL_DRIVE,
-            map_location=DEVICE
-        )
-
-        model.load_state_dict(weights)
-
-    elif os.path.exists(BEST_MODEL_LOCAL):
-
-        print("\nLoading existing local best model.")
-
-        weights = torch.load(
-            BEST_MODEL_LOCAL,
-            map_location=DEVICE
-        )
-
-        model.load_state_dict(weights)
-
-    else:
-        print("\nNo previous model found. Starting from create_model().")
-
-
-# =========================================================
-# Establish Baseline
-# =========================================================
-
-# When starting a new training run from existing weights,
-# evaluate them first so the best-model checkpoint is not
-# overwritten by a worse model.
-
-if start_epoch == 0:
-
-    print("\nEvaluating starting model...")
-
-    baseline_loss, baseline_accuracy, baseline_iou = evaluate(
-        model,
-        val_loader
-    )
-
-    best_iou = baseline_iou
-
-    print(f"Starting validation loss: {baseline_loss:.4f}")
-    print(f"Starting pixel accuracy: {baseline_accuracy * 100:.2f}%")
-    print(f"Starting mIoU: {baseline_iou * 100:.2f}%")
 
 
 # =========================================================
 # Training Loop
 # =========================================================
 
-print("\nStarting training...")
+print("\nStarting V3 training...")
 
 for epoch in range(start_epoch, NUM_EPOCHS):
 
@@ -499,27 +528,35 @@ for epoch in range(start_epoch, NUM_EPOCHS):
 
         optimizer.zero_grad(set_to_none=True)
 
-        outputs = model(images)
-        predictions = outputs["out"]
+        with torch.autocast(
+            device_type=DEVICE.type,
+            dtype=torch.float16,
+            enabled=USE_AMP
+        ):
 
-        loss = criterion(predictions, masks)
+            outputs = model(images)
+            predictions = outputs["out"]
 
-        loss.backward()
+            loss = criterion(predictions, masks)
 
-        # Limit unusually large gradients to stabilize training.
+        scaler.scale(loss).backward()
+
+        scaler.unscale_(optimizer)
+
         torch.nn.utils.clip_grad_norm_(
             model.parameters(),
             max_norm=1.0
         )
 
-        optimizer.step()
+        scaler.step(optimizer)
+        scaler.update()
 
         batch_size = images.size(0)
 
         running_loss += loss.item() * batch_size
         total_train_images += batch_size
 
-        if (batch_index + 1) % 100 == 0:
+        if (batch_index + 1) % 25 == 0:
 
             print(
                 f"Epoch [{epoch + 1}/{NUM_EPOCHS}] "
@@ -527,87 +564,53 @@ for epoch in range(start_epoch, NUM_EPOCHS):
                 f"Loss: {loss.item():.4f}"
             )
 
-    average_train_loss = (
+    train_loss = (
         running_loss / max(total_train_images, 1)
     )
 
-
-    # -----------------------------------------------------
-    # Validation
-    # -----------------------------------------------------
-
-    val_loss, pixel_accuracy, mean_iou = evaluate(
+    val_loss, pixel_accuracy, val_iou = evaluate(
         model,
         val_loader
     )
 
-    # The scheduler now optimizes for mIoU, not validation loss.
-    scheduler.step(mean_iou)
+    scheduler.step(val_iou)
 
-    current_lrs = [
-        group["lr"]
-        for group in optimizer.param_groups
-    ]
-
-
-    # -----------------------------------------------------
-    # Print Results
-    # -----------------------------------------------------
-
-    print("\n" + "=" * 45)
-
+    print("\n" + "=" * 55)
     print(f"Epoch: {epoch + 1}/{NUM_EPOCHS}")
-    print(f"Training Loss:   {average_train_loss:.4f}")
-    print(f"Validation Loss: {val_loss:.4f}")
-    print(f"Pixel Accuracy:  {pixel_accuracy * 100:.2f}%")
-    print(f"Mean IoU:        {mean_iou * 100:.2f}%")
-    print(
-        "Learning Rates: "
-        + ", ".join(f"{lr:.2e}" for lr in current_lrs)
-    )
+    print(f"Training loss: {train_loss:.4f}")
+    print(f"Validation loss: {val_loss:.4f}")
+    print(f"Pixel accuracy: {pixel_accuracy * 100:.2f}%")
+    print(f"Validation mIoU: {val_iou * 100:.2f}%")
+    print(f"Backbone LR: {optimizer.param_groups[0]['lr']:.8f}")
+    print(f"Classifier LR: {optimizer.param_groups[1]['lr']:.8f}")
+    print("=" * 55)
 
-    print("=" * 45)
-
-
-    # -----------------------------------------------------
-    # Save Best Model and Apply Early Stopping
-    # -----------------------------------------------------
-
-    improved = mean_iou > best_iou + MIN_DELTA
+    improved = val_iou > best_iou + MIN_DELTA
 
     if improved:
 
-        best_iou = mean_iou
+        best_iou = val_iou
         epochs_without_improvement = 0
 
-        model_state = model.state_dict()
-
         torch.save(
-            model_state,
-            BEST_MODEL_DRIVE
+            model.state_dict(),
+            BEST_MODEL_PATH
         )
 
-        torch.save(
-            model_state,
-            BEST_MODEL_LOCAL
+        print(
+            f"New best V3 model saved! "
+            f"mIoU: {best_iou * 100:.2f}%"
         )
-
-        print("New best model saved!")
-        print(f"Best mIoU: {best_iou * 100:.2f}%")
 
     else:
 
         epochs_without_improvement += 1
 
         print(
-            "No significant mIoU improvement for "
-            f"{epochs_without_improvement} epoch(s)."
+            f"No significant improvement. "
+            f"Patience: {epochs_without_improvement}/"
+            f"{EARLY_STOPPING_PATIENCE}"
         )
-
-
-    # -----------------------------------------------------
-    # Save Latest Checkpoint
-    # -----------------------------------------------------
 
     checkpoint = {
         "checkpoint_version": CHECKPOINT_VERSION,
@@ -615,10 +618,9 @@ for epoch in range(start_epoch, NUM_EPOCHS):
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
         "scheduler_state_dict": scheduler.state_dict(),
+        "scaler_state_dict": scaler.state_dict(),
+        "class_weights": class_weights.cpu(),
         "best_iou": best_iou,
-        "val_loss": val_loss,
-        "pixel_accuracy": pixel_accuracy,
-        "mean_iou": mean_iou,
         "epochs_without_improvement": epochs_without_improvement
     }
 
@@ -627,20 +629,9 @@ for epoch in range(start_epoch, NUM_EPOCHS):
         LATEST_CHECKPOINT
     )
 
-    print("Latest checkpoint saved.")
-
-
-    # -----------------------------------------------------
-    # Early Stopping
-    # -----------------------------------------------------
-
     if epochs_without_improvement >= EARLY_STOPPING_PATIENCE:
 
-        print(
-            "\nEarly stopping: validation mIoU has not "
-            "improved sufficiently."
-        )
-
+        print("\nEarly stopping triggered.")
         break
 
 
@@ -648,10 +639,7 @@ for epoch in range(start_epoch, NUM_EPOCHS):
 # Training Complete
 # =========================================================
 
-print("\nTraining completed.")
-
+print("\nV3 training complete!")
 print(f"Best validation mIoU: {best_iou * 100:.2f}%")
-
-print(f"Best model: {BEST_MODEL_LOCAL}")
-print(f"Drive model: {BEST_MODEL_DRIVE}")
+print(f"Best model: {BEST_MODEL_PATH}")
 print(f"Latest checkpoint: {LATEST_CHECKPOINT}")

@@ -1,81 +1,41 @@
 def estimate_food_weight(food_name, pixel_percentage):
     """
-    Estimate food weight from image pixel coverage.
+    Estimate food weight from segmentation-mask coverage.
 
-    IMPORTANT:
-    This is a rough heuristic.
-    Pixel coverage does not directly measure physical weight.
+    This is a heuristic, not a physical measurement.
+    Pixel coverage cannot directly determine food weight.
     """
 
     portion_ranges = {
-        "steak": {
-            "small": 100,
-            "medium": 200,
-            "large": 300,
-        },
-
-        "chicken": {
-            "small": 100,
-            "medium": 200,
-            "large": 300,
-        },
-
-        "rice": {
-            "small": 100,
-            "medium": 180,
-            "large": 250,
-        },
-
-        "potato": {
-            "small": 100,
-            "medium": 180,
-            "large": 250,
-        },
-
-        "bread": {
-            "small": 30,
-            "medium": 60,
-            "large": 100,
-        },
-
-        "sausage": {
-            "small": 50,
-            "medium": 100,
-            "large": 150,
-        },
-
-        "banana": {
-            "small": 80,
-            "medium": 120,
-            "large": 180,
-        },
-
-        "strawberry": {
-            "small": 50,
-            "medium": 100,
-            "large": 150,
-        },
-
-        "ice cream": {
-            "small": 75,
-            "medium": 150,
-            "large": 200,
-        },
+        "steak": (100, 200, 300),
+        "chicken duck": (100, 200, 300),
+        "chicken": (100, 200, 300),
+        "rice": (100, 180, 250),
+        "potato": (100, 180, 250),
+        "bread": (30, 60, 100),
+        "sausage": (50, 100, 150),
+        "banana": (80, 120, 180),
+        "strawberry": (50, 100, 150),
+        "ice cream": (75, 150, 200),
     }
 
-    if food_name not in portion_ranges:
-        return 100
+    if not 0 <= pixel_percentage <= 100:
+        raise ValueError(
+            "pixel_percentage must be between 0 and 100."
+        )
 
-    portions = portion_ranges[food_name]
+    # Explicitly label the fallback as a rough default.
+    small, medium, large = portion_ranges.get(
+        food_name,
+        (50, 100, 150)
+    )
 
     if pixel_percentage < 5:
-        return portions["small"]
-
+        return small
     elif pixel_percentage < 15:
-        return portions["medium"]
-
+        return medium
     else:
-        return portions["large"]
+        return large
 
 
 if __name__ == "__main__":
@@ -87,9 +47,7 @@ if __name__ == "__main__":
         test_percentage
     )
 
-    print("==============================")
-    print("GENERAL PORTION ESTIMATION")
-    print("==============================")
     print(f"Food: {test_food}")
     print(f"Pixel coverage: {test_percentage:.2f}%")
     print(f"Estimated weight: {estimated_weight} g")
+    print("Note: This is a rough heuristic.")
